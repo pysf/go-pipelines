@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,10 +13,9 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	interval := time.Duration(2)
 
 	fetchRequest := make(chan s3.FetchRequest)
-	response, _ := s3.Fetch(ctx, interval/2, fetchRequest)
+	response := s3.Fetch(ctx, fetchRequest)
 
 	re := s3.FetchRequest{
 		Bucket: "pysf-kafka-to-s3",
@@ -23,25 +23,28 @@ func main() {
 	}
 
 	go func() {
-		time.Sleep(3 * time.Second)
+		time.Sleep(4 * time.Second)
 		cancel()
 	}()
 
 	go func() {
 		for {
 			fmt.Println("Sending Req...")
+			time.Sleep(1 * time.Second)
 			fetchRequest <- re
 		}
 	}()
+	// msg := "There was an unexpected issue; please report this as a bug."
 
-	for {
-		select {
-		case re, ok := <-response:
-			if !ok {
-				return
-			}
-			fmt.Println(re)
+	for re := range response {
+		if re.Err != nil {
+			var fechErr *s3.FetchError
+			errors.As(re.Err, &fechErr)
+			fmt.Println(fechErr)
+			fmt.Println(errors.Is(fechErr, &s3.FetchError{}))
+			continue
 		}
+
 	}
 
 }
