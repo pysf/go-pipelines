@@ -21,7 +21,7 @@ type FetchRequest struct {
 }
 
 type FetchResponse struct {
-	Err  *FetchError
+	Err  error
 	File *os.File
 }
 

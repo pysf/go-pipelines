@@ -36,13 +36,16 @@ func main() {
 	}()
 	// msg := "There was an unexpected issue; please report this as a bug."
 
-	for re := range response {
-		if re.Err != nil {
+	for r := range response {
+		if r.Err != nil {
+			msg := "There was an unexpected issue; please report this as a bug."
 			var fechErr *s3.FetchError
-			errors.As(re.Err, &fechErr)
-			fmt.Println(fechErr)
-			fmt.Println(errors.Is(fechErr, &s3.FetchError{}))
-			continue
+			if errors.As(r.Err, &fechErr) {
+				fmt.Println(fechErr)
+			} else {
+				fmt.Println(msg)
+				panic(r.Err)
+			}
 		}
 
 	}
