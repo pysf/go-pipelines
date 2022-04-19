@@ -2,52 +2,32 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
-
-	"github.com/pysf/s3-to-kafka-go/pkg/s3"
 )
+
+var QUEUE string = "s3-events"
 
 func main() {
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, _ := context.WithCancel(context.Background())
 
-	fetchRequest := make(chan s3.FetchRequest)
-	response := s3.Fetch(ctx, fetchRequest)
+	fetchCh := fetch(ctx, getEvent(ctx, &QUEUE))
 
-	re := s3.FetchRequest{
-		Bucket: "pysf-kafka-to-s3",
-		Key:    "order_delivery_items.csv",
-	}
+	for {
 
-	go func() {
-		time.Sleep(4 * time.Second)
-		cancel()
-	}()
-
-	go func() {
-		for {
-			fmt.Println("Sending Req...")
-			time.Sleep(1 * time.Second)
-			fetchRequest <- re
-		}
-	}()
-	// msg := "There was an unexpected issue; please report this as a bug."
-
-	for r := range response {
-		if r.Err != nil {
-			msg := "There was an unexpected issue; please report this as a bug."
-			var fechErr *s3.FetchError
-			if errors.As(r.Err, &fechErr) {
-				fmt.Println(fechErr)
-			} else {
-				fmt.Println(msg)
-				panic(r.Err)
+		select {
+		case e, ok := <-fetchCh:
+			if !ok {
+				return
 			}
+			if e.err != nil {
+				fmt.Printf("Error: %v \n", e.err)
+				return
+			}
+			fmt.Printf("file: %v \n", e.file)
+			fmt.Printf("processed: %v \n", e.processed)
+			fmt.Printf("file name: %v \n", e.sqsMsg.S3.Object.Key)
 		}
 
 	}
-
 }

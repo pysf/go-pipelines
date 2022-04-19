@@ -1,0 +1,32 @@
+{
+  "Records": [
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "eu-central-1",
+      "eventTime": "2022-04-19T07:56:15.961Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": { "principalId": "AWS:AIDAQ57GTTLQBWHPMCL2X" },
+      "requestParameters": { "sourceIPAddress": "87.141.46.58" },
+      "responseElements": {
+        "x-amz-request-id": "XXK2FPKPSFETQYG1",
+        "x-amz-id-2": "XI8wVYK31PrbjClr0XOjUiRDPhzmvNygg0r+PZVIQmZ2goQmAh/PkAfEkPUhlZ4Sj0RBep+8xBI8ufmhA5e7bwb2jLK6sPfH"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "file-notification",
+        "bucket": {
+          "name": "pysf-kafka-to-s3",
+          "ownerIdentity": { "principalId": "A17B0OXGJAG3T0" },
+          "arn": "arn:aws:s3:::pysf-kafka-to-s3"
+        },
+        "object": {
+          "key": "order_delivery_items.csv",
+          "size": 5494802,
+          "eTag": "e4e69e1c959f4b1214676d47e90de9d7",
+          "sequencer": "00625E6B1F5E6B80FE"
+        }
+      }
+    }
+  ]
+}
