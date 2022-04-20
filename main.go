@@ -9,25 +9,18 @@ var QUEUE string = "s3-events"
 
 func main() {
 
-	ctx, _ := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	fetchCh := fetch(ctx, getEvent(ctx, &QUEUE))
+	resultCh := fetchS3Files(ctx, getSQSEvents(ctx, &QUEUE))
 
-	for {
-
-		select {
-		case e, ok := <-fetchCh:
-			if !ok {
-				return
-			}
-			if e.err != nil {
-				fmt.Printf("Error: %v \n", e.err)
-				return
-			}
-			fmt.Printf("file: %v \n", e.file)
-			fmt.Printf("processed: %v \n", e.processed)
-			fmt.Printf("file name: %v \n", e.sqsMsg.S3.Object.Key)
+	for fEvent := range resultCh {
+		if fEvent.err != nil {
+			fmt.Printf("Error: %v \n", fEvent.err)
+			continue
 		}
+		fmt.Printf("processed: %v \n", fEvent.processed)
+		fmt.Printf("file name: %v \n", fEvent.sqsRecord.S3.Object.Key)
 
 	}
 }
