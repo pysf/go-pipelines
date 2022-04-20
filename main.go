@@ -12,7 +12,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	resultCh := fetchS3Files(ctx, getSQSEvents(ctx, &QUEUE))
+	resultCh := read(ctx, fetchS3Files(ctx, getSQSEvents(ctx, &QUEUE)))
 
 	for fEvent := range resultCh {
 		if fEvent.err != nil {

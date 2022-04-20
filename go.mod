@@ -4,7 +4,9 @@ go 1.18
 
 require (
 	github.com/aws/aws-sdk-go v1.43.39 // indirect
+	github.com/djimenez/iconv-go v0.0.0-20160305225143-8960e66bd3da // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
+	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/magiconair/properties v1.8.6 // indirect
