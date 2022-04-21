@@ -12,15 +12,15 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	resultCh := read(ctx, fetchS3Files(ctx, getSQSEvents(ctx, &QUEUE)))
+	parserEventCh := read(ctx, fetch(ctx, sqsEvents(ctx, &QUEUE)))
 
-	for fEvent := range resultCh {
-		if fEvent.err != nil {
-			fmt.Printf("Error: %v \n", fEvent.err)
+	for parserEvent := range parserEventCh {
+		parserStageEvent := parserEvent.(*ParserStageEvent)
+		if parserStageEvent.err != nil {
+			fmt.Printf("Error: %v \n", parserStageEvent.err)
 			continue
 		}
-		fmt.Printf("processed: %v \n", fEvent.processed)
-		fmt.Printf("file name: %v \n", fEvent.sqsRecord.S3.Object.Key)
+		fmt.Printf("file name: %v \n", parserStageEvent.file.Name())
 
 	}
 }

@@ -8,15 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"unicode/utf8"
 
 	"github.com/djimenez/iconv-go"
 	"github.com/gogs/chardet"
 )
 
-func read(ctx context.Context, pipeEventCh chan pipelineEvent) chan pipelineEvent {
+func read(ctx context.Context, parserStageCh chan ParserStage) chan ParserStage {
 
-	resultCh := make(chan pipelineEvent)
+	resultCh := make(chan ParserStage)
 	go func() {
 		defer close(resultCh)
 
@@ -24,18 +23,19 @@ func read(ctx context.Context, pipeEventCh chan pipelineEvent) chan pipelineEven
 			select {
 			case <-ctx.Done():
 				return
-			case pipeEvent, ok := <-pipeEventCh:
+			case parserStage, ok := <-parserStageCh:
 				if !ok {
 					return
 				}
 
-				if pipeEvent.err != nil {
-					resultCh <- pipeEvent
+				parserStageEvent := parserStage.(*ParserStageEvent)
+				if parserStageEvent.err != nil {
+					resultCh <- parserStage
 					break
 				}
-
-				processFile(&pipeEvent)
-				resultCh <- pipeEvent
+				parserStageEvent.onDone()
+				processFile(parserStageEvent)
+				resultCh <- parserStage
 			}
 		}
 
@@ -44,56 +44,67 @@ func read(ctx context.Context, pipeEventCh chan pipelineEvent) chan pipelineEven
 	return resultCh
 }
 
-func processFile(pipeEvent *pipelineEvent) {
+func processFile(parserStageEvent *ParserStageEvent) error {
 
 	defaultSeparator := ','
 	if v, exist := os.LookupEnv("DEFAULT_CSV_SEPARATOR"); exist {
-		r, _ := utf8.DecodeRuneInString(v)
-		defaultSeparator = r
+		for _, r := range v {
+			defaultSeparator = r
+		}
 	}
 
-	encodingReader, err := getEncodingReader(pipeEvent)
+	encodingReader, err := getEncodingReader(parserStageEvent)
 	if err != nil {
-		pipeEvent.err = fmt.Errorf("processFile: failed to create encoding Reader %w", err)
-		return
+		return fmt.Errorf("processFile: failed to create encoding Reader %w", err)
 	}
 
 	csvReader := csv.NewReader(encodingReader)
 	csvReader.Comma = defaultSeparator
 
+	headers, err := csvReader.Read()
+
+	if err != nil {
+		if err != io.EOF {
+			return err
+		}
+	}
+
 	for {
-		record, err := csvReader.Read()
+		data, err := csvReader.Read()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			fmt.Println(err)
 		}
-		fmt.Println(record)
+		row := make(map[string]string)
+		for i, header := range headers {
+			row[header] = data[i]
+		}
+
+		fmt.Println(row)
 		// send line to kafka
 		// set process status
 	}
+	return nil
 
 }
 
-func getEncodingReader(pipeEvent *pipelineEvent) (io.Reader, error) {
-	f, err := os.Open(pipeEvent.file.Name())
-
-	if err != nil {
-		return nil, fmt.Errorf("getEncodingReader: failed to open the file %v %w", err, pipeEvent.file.Name())
-	}
+func getEncodingReader(parserStageEvent *ParserStageEvent) (io.Reader, error) {
+	f := parserStageEvent.file
 
 	convertToUTF8, exist := os.LookupEnv("CONVERT_TO_UTF8")
 	if exist && convertToUTF8 == "false" {
-		return f, err
+		return f, nil
 	} else {
-		encoding, err := detectEncoing(pipeEvent.file)
+		encoding, err := detectEncoing(f)
+		fmt.Println(*encoding)
 		if err != nil {
 			return nil, fmt.Errorf("getEncodingReader: %w", err)
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("getEncodingReader: failed to initiate converter for %v encoding %w", err, encoding)
+			return nil, fmt.Errorf("getEncodingReader: failed to initiate converter for %v encoding %w", encoding, err)
 		}
 		return iconv.NewReader(f, *encoding, "utf-8")
 	}
@@ -101,7 +112,7 @@ func getEncodingReader(pipeEvent *pipelineEvent) (io.Reader, error) {
 
 func detectEncoing(f *os.File) (*string, error) {
 	f, err := os.Open(f.Name())
-	defer f.Close()
+	// defer f.Close()
 	if err != nil {
 		return nil, fmt.Errorf("detectEncoing: failed to open the file %w", err)
 	}
