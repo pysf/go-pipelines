@@ -17,24 +17,24 @@ import (
 type output struct {
 	done bool
 	err  error
+	a    string
 }
 
 func sendToKafka(ctx context.Context, fileProcessorCh chan fileProcessorEvent) chan output {
 
 	resultCh := make(chan output)
 	go func() {
+		defer close(resultCh)
 
 		sendResult := func(r output) {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case resultCh <- r:
-				}
+			select {
+			case <-ctx.Done():
+				return
+			case resultCh <- r:
 			}
 		}
 
-		kw, err := kafkaWriter()
+		_, err := kafkaWriter()
 		if err != nil {
 			sendResult(output{
 				done: false,
@@ -47,10 +47,14 @@ func sendToKafka(ctx context.Context, fileProcessorCh chan fileProcessorEvent) c
 			select {
 			case <-ctx.Done():
 				return
-			case fpe := <-fileProcessorCh:
-				sendMessageToKafka(ctx, kw, fpe)
+			case fpe, ok := <-fileProcessorCh:
+				// sendMessageToKafka(ctx, kw, fpe)
+				if !ok {
+					return
+				}
 				sendResult(output{
 					done: true,
+					a:    fpe.fileName(),
 				})
 			}
 		}

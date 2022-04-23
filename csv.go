@@ -99,6 +99,7 @@ func parseCSV(ctx context.Context, file *os.File, output chan fileProcessorEvent
 		}:
 		}
 		c++
+		fmt.Println(c)
 	}
 
 }
