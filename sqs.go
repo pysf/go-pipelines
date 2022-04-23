@@ -10,16 +10,23 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
-func sqsEvents(ctx context.Context, queue *string) chan S3Stage {
+type s3Notification interface {
+	bucket() string
+	key() string
+	getError() error
+	done()
+}
 
-	resultCh := make(chan S3Stage)
+func messages(ctx context.Context, queue string) chan s3Notification {
+
+	resultCh := make(chan s3Notification)
 
 	go func() {
 		defer close(resultCh)
 
 		sqsMessages, err := latesEvents(queue)
 		if err != nil {
-			resultCh <- &S3StageEvent{
+			resultCh <- &s3PipelineEvent{
 				err: fmt.Errorf("getSQSEvents: failed %w", err),
 			}
 			return
@@ -28,11 +35,10 @@ func sqsEvents(ctx context.Context, queue *string) chan S3Stage {
 		for _, message := range sqsMessages {
 			select {
 			case <-ctx.Done():
-			case resultCh <- &S3StageEvent{
-				bucket: message.S3.Bucket.Name,
-				key:    message.S3.Object.Key,
+			case resultCh <- &s3PipelineEvent{
+				message: message,
 				onDone: func() {
-					fmt.Println(message.S3.Object.Key)
+					fmt.Printf("I need to remove this message from sqs %v", message.ReceiptHandle)
 				},
 			}:
 			}
@@ -44,7 +50,7 @@ func sqsEvents(ctx context.Context, queue *string) chan S3Stage {
 
 }
 
-func latesEvents(queue *string) ([]sqsRecord, error) {
+func latesEvents(queue string) ([]rawSQSRecord, error) {
 
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("eu-central-1"),
@@ -65,14 +71,20 @@ func latesEvents(queue *string) ([]sqsRecord, error) {
 	}
 
 	fmt.Println(len(msgResult.Messages))
-	var result []sqsRecord
+	var result []rawSQSRecord
 	for _, msg := range msgResult.Messages {
 		// msg.ReceiptHandle
-		var message sqsBody
+		var message rawSQSBody
 		if err := json.Unmarshal([]byte(*msg.Body), &message); err != nil {
 			return nil, fmt.Errorf("fetchLatesEvents: failed to parse sqs message %w", err)
 		}
-		result = append(result, message.Records...)
+		if len(message.Records) > 1 {
+			panic("more than one Record found in SQS msg")
+		}
+		for _, r := range message.Records {
+			r.ReceiptHandle = *msg.ReceiptHandle
+			result = append(result, r)
+		}
 	}
 
 	return result, nil
@@ -100,11 +112,11 @@ func sqsMessages(sess *session.Session, queueUrl *string) (*sqs.ReceiveMessageOu
 	return receivedMsg, nil
 }
 
-func queueUrl(sess *session.Session, queue *string) (*sqs.GetQueueUrlOutput, error) {
+func queueUrl(sess *session.Session, queue string) (*sqs.GetQueueUrlOutput, error) {
 	svc := sqs.New(sess)
 
 	queueUrl, err := svc.GetQueueUrl(&sqs.GetQueueUrlInput{
-		QueueName: queue,
+		QueueName: &queue,
 	})
 
 	if err != nil {
@@ -114,25 +126,25 @@ func queueUrl(sess *session.Session, queue *string) (*sqs.GetQueueUrlOutput, err
 	return queueUrl, nil
 }
 
-type sqsBody struct {
-	Records []sqsRecord `json:"Records"`
+type rawSQSBody struct {
+	Records []rawSQSRecord `json:"Records"`
 }
 
-type sqsRecord struct {
-	S3            s3Data `json: "s3"`
+type rawSQSRecord struct {
+	S3            rawSQSS3Data `json: "s3"`
 	ReceiptHandle string
 }
 
-type s3Data struct {
-	Bucket bucket `json:"bucket"`
-	Object object `json:"object"`
+type rawSQSS3Data struct {
+	Bucket rawBucketData `json:"bucket"`
+	Object rawObjectData `json:"object"`
 }
 
-type bucket struct {
+type rawBucketData struct {
 	Name string
 }
 
-type object struct {
+type rawObjectData struct {
 	Key  string
 	Size int
 }

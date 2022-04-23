@@ -14,41 +14,56 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-func fetch(ctx context.Context, s3StageCh chan S3Stage) chan ParserStage {
+type fileEvent interface {
+	file() *os.File
+	getError() error
+	done()
+}
 
-	resultCh := make(chan ParserStage)
+func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileEvent {
+
+	resultCh := make(chan fileEvent)
 
 	go func() {
 		defer close(resultCh)
+
+		sendResult := func(r fileEvent) {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case resultCh <- r:
+					return
+				}
+			}
+		}
 
 		for {
 
 			select {
 			case <-ctx.Done():
 				return
-			case ev, ok := <-s3StageCh:
+			case s3Notif, ok := <-s3NotificationCh:
 				if !ok {
 					return
 				}
 
-				s3StageEvent := ev.(*S3StageEvent)
-
-				if s3StageEvent.err != nil {
-					resultCh <- &ParserStageEvent{
-						err: s3StageEvent.err,
+				if s3Notif.getError() != nil {
+					resultCh <- &s3PipelineEvent{
+						err: s3Notif.getError(),
 					}
 				}
 
-				f, err := fetchFile(s3StageEvent)
+				file, err := download(s3Notif.bucket(), s3Notif.key())
 
-				resultCh <- &ParserStageEvent{
-					file: f,
-					err:  err,
+				sendResult(&s3PipelineEvent{
+					f:   file,
+					err: err,
 					onDone: func() {
-						s3StageEvent.onDone()
+						s3Notif.done()
 						fmt.Println("S3 on done")
 					},
-				}
+				})
 
 			}
 		}
@@ -57,7 +72,7 @@ func fetch(ctx context.Context, s3StageCh chan S3Stage) chan ParserStage {
 	return resultCh
 }
 
-func fetchFile(s3StegeEvent *S3StageEvent) (*os.File, error) {
+func download(bucket, key string) (*os.File, error) {
 
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("eu-central-1"),
@@ -66,8 +81,6 @@ func fetchFile(s3StegeEvent *S3StageEvent) (*os.File, error) {
 		return nil, fmt.Errorf("fetchS3Files: failed to connect to aws %w", err)
 	}
 
-	key := s3StegeEvent.key
-	bucket := s3StegeEvent.bucket
 	downloader := s3manager.NewDownloader(sess)
 	f, err := ioutil.TempFile("", fmt.Sprintf("%v-*", key))
 	if err != nil {
@@ -102,40 +115,20 @@ func fetchFile(s3StegeEvent *S3StageEvent) (*os.File, error) {
 	return f, nil
 }
 
-type S3Stage interface {
-	setBucket(string)
-	getBucket() string
-	getKey() string
-	setKey(string)
-}
+// type s3File struct {
+// 	f      *os.File
+// 	err    error
+// 	onDone func()
+// }
 
-type S3StageEvent struct {
-	err    error
-	key    string
-	bucket string
-	onDone func()
-}
+// func (e *s3File) file() *os.File {
+// 	return e.f
+// }
 
-func (e *S3StageEvent) setBucket(b string) {
-	e.bucket = b
-}
-
-func (e *S3StageEvent) getBucket() string {
-	return e.bucket
-}
-
-func (e *S3StageEvent) setKey(k string) {
-	e.key = k
-}
-
-func (e *S3StageEvent) getKey() string {
-	return e.key
-}
-
-// func (e *S3StageEvent) getError() error {
+// func (e *s3File) getError() error {
 // 	return e.err
 // }
 
-// func (e *S3StageEvent) setError(err error) {
-// 	e.err = err
+// func (e *s3File) done() {
+// 	e.onDone()
 // }

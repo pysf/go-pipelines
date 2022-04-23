@@ -12,15 +12,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	parserEventCh := read(ctx, fetch(ctx, sqsEvents(ctx, &QUEUE)))
+	csvDataCh := sendToKafka(ctx, processCsv(ctx, fetch(ctx, messages(ctx, QUEUE))))
 
-	for parserEvent := range parserEventCh {
-		parserStageEvent := parserEvent.(*ParserStageEvent)
-		if parserStageEvent.err != nil {
-			fmt.Printf("Error: %v \n", parserStageEvent.err)
-			continue
-		}
-		fmt.Printf("file name: %v \n", parserStageEvent.file.Name())
-
+	for o := range csvDataCh {
+		fmt.Println(o)
 	}
 }
