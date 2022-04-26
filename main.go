@@ -15,20 +15,20 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	csvDataCh := sendToKafka(ctx, processCsv(ctx, fetch(ctx, messages(ctx, QUEUE))))
+	csvResultCh := sendToKafka(ctx, processCsv(ctx, fetch(ctx, messages(ctx, QUEUE))))
 
-	for o := range csvDataCh {
+	for result := range csvResultCh {
 
-		if o.err != nil {
+		if result.err != nil {
 			var pip *pipelineError
-			if errors.As(o.err, &pip) {
-				fmt.Printf("Swallow Error: %v \n", pip.Error())
+			if errors.As(result.err, &pip) {
+				fmt.Printf("Error: %v \n", pip.Error())
 				continue
 			} else {
-				panic(o.err)
+				panic(result.err)
 			}
 		}
-		fmt.Println(o.data)
+		fmt.Printf("%v Message sent \n", result.sent)
 	}
-	fmt.Println(time.Since(start) * time.Second)
+	fmt.Println(time.Since(start))
 }

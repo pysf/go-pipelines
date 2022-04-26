@@ -23,6 +23,7 @@ func messages(ctx context.Context, queue string) chan s3Notification {
 
 	go func() {
 		defer close(resultCh)
+		defer fmt.Println("sqs closing...")
 
 		sqsMessages, err := latesMessage(queue)
 		if err != nil {
@@ -35,6 +36,7 @@ func messages(ctx context.Context, queue string) chan s3Notification {
 		for _, message := range sqsMessages {
 			select {
 			case <-ctx.Done():
+				return
 			case resultCh <- &s3PipelineEvent{
 				message: message,
 				onDone: func() {

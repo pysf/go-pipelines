@@ -26,17 +26,18 @@ func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileE
 
 	go func() {
 		defer close(resultCh)
+		defer fmt.Println("s3 closing...")
 
-		sendResult := func(r fileEvent) {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case resultCh <- r:
-					return
-				}
-			}
-		}
+		// sendResult := func(r fileEvent) {
+		// 	for {
+		// 		select {
+		// 		case <-ctx.Done():
+		// 			return
+		// 		case resultCh <- r:
+		// 			return
+		// 		}
+		// 	}
+		// }
 
 		for {
 
@@ -56,14 +57,19 @@ func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileE
 
 				file, err := download(s3Notif.bucket(), s3Notif.key())
 
-				sendResult(&s3PipelineEvent{
+				select {
+				case <-ctx.Done():
+					return
+				case resultCh <- &s3PipelineEvent{
 					f:   file,
 					err: err,
 					onDone: func() {
 						s3Notif.done()
 						fmt.Println("S3 on done")
 					},
-				})
+				}:
+
+				}
 
 			}
 		}

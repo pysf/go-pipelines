@@ -14,69 +14,112 @@ import (
 )
 
 type output struct {
-	done bool
 	err  error
-	data interface{}
+	sent int
 }
+
+const messageBulkSize int = 60
 
 func sendToKafka(ctx context.Context, fileProcessorCh chan fileProcessorEvent) chan output {
 
 	resultCh := make(chan output)
+
+	sendResult := func(r output) bool {
+		select {
+		case <-ctx.Done():
+			return true
+		case resultCh <- r:
+			return false
+		}
+	}
+
 	go func() {
 		defer close(resultCh)
+		defer fmt.Println("kafka closing...")
 
-		sendResult := func(r output) {
-			select {
-			case <-ctx.Done():
-				return
-			case resultCh <- r:
-			}
-		}
-
-		_, err := kafkaWriter()
+		sendMessage, err := createKafkaProducer(ctx, sendResult)
 		if err != nil {
 			sendResult(output{
-				done: false,
-				err:  err,
+				err: err,
 			})
 			return
 		}
 
+		fpEvents := []fileProcessorEvent{}
+
 		for {
 			select {
 			case <-ctx.Done():
+				sendMessage(fpEvents)
 				return
-			case fpe, ok := <-fileProcessorCh:
+			case fpEvent, ok := <-fileProcessorCh:
 				if !ok {
+					sendMessage(fpEvents)
 					return
 				}
 
-				if fpe.getError() != nil {
-					sendResult(output{
-						done: false,
-						err:  fpe.getError(),
-					})
-					break
+				fpEvents = append(fpEvents, fpEvent)
+				if len(fpEvents) >= messageBulkSize {
+					sendMessage(fpEvents[:])
+					fpEvents = []fileProcessorEvent{}
 				}
-				// kw, err := kafkaWriter()
-				// if err != nil {
-				// 	sendResult(output{
-				// 		done: false,
-				// 		err:  err,
-				// 	})
-				// 	break
-				// }
-				// sendMessageToKafka(ctx, kw, fpe)
-				sendResult(output{
-					done: true,
-					data: fpe.getData(),
-				})
 			}
 		}
 
 	}()
 
 	return resultCh
+}
+
+func createKafkaProducer(ctx context.Context, sendResult func(r output) bool) (func(fpe []fileProcessorEvent), error) {
+
+	kw, err := kafkaWriter()
+	if err != nil {
+		return nil, err
+	}
+
+	return func(fpEvents []fileProcessorEvent) {
+
+		kafkaMessages := []kafka.Message{}
+
+		for _, fpEvent := range fpEvents {
+
+			if fpEvent.getError() != nil {
+				sendResult(output{
+					err: wrapError(fpEvent.getError()),
+				})
+				continue
+			}
+
+			row := (fpEvent.getData()).(map[string]string)
+			jsonStr, err := json.Marshal(row)
+			if err != nil {
+				sendResult(output{
+					err: wrapError(fmt.Errorf("sendMessageToKafka: json unmalshal failed %w", err)),
+				})
+				continue
+			}
+			// fmt.Println(string(jsonStr))
+			kafkaMessages = append(kafkaMessages, kafka.Message{
+				Key:   []byte(""),
+				Value: jsonStr,
+			})
+		}
+
+		err := kw.WriteMessages(ctx, kafkaMessages...)
+		if err != nil {
+			sendResult(output{
+				err: wrapError(fmt.Errorf("sendMessageToKafka: %w", err)),
+			})
+			return
+		}
+
+		sendResult(output{
+			sent: len(fpEvents),
+		})
+
+	}, nil
+
 }
 
 func kafkaWriter() (*kafka.Writer, error) {
@@ -119,27 +162,4 @@ func kafkaWriter() (*kafka.Writer, error) {
 		Balancer:  &kafka.Hash{},
 		Dialer:    dialer,
 	}), nil
-}
-
-func sendMessageToKafka(ctx context.Context, kw *kafka.Writer, fpe fileProcessorEvent) error {
-
-	row := (fpe.getData()).(map[string]string)
-
-	// ctx := context.Background()
-	jsonStr, err := json.Marshal(row)
-	if err != nil {
-		return err
-	}
-
-	err = kw.WriteMessages(ctx, kafka.Message{
-		Key:   []byte(""),
-		Value: jsonStr,
-	})
-
-	if err != nil {
-		fmt.Println("sendToKafka", err)
-		return err
-	}
-
-	return nil
 }

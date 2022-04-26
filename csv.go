@@ -16,8 +16,18 @@ import (
 func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProcessorEvent {
 
 	resultCh := make(chan fileProcessorEvent)
+	sendResult := func(r *csvProcessorEvent) bool {
+		select {
+		case <-ctx.Done():
+			return true
+		case resultCh <- r:
+			return false
+		}
+	}
+
 	go func() {
 		defer close(resultCh)
+		defer fmt.Println("csv closing...")
 
 		for {
 			select {
@@ -29,13 +39,13 @@ func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProces
 				}
 
 				if fileEvent.getError() != nil {
-					resultCh <- &csvProcessorEvent{
+					sendResult(&csvProcessorEvent{
 						err: fileEvent.getError(),
-					}
+					})
 					break
 				}
 
-				parseCSV(ctx, fileEvent.file(), resultCh)
+				parseCSV(ctx, fileEvent.file(), sendResult)
 			}
 		}
 
@@ -44,7 +54,7 @@ func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProces
 	return resultCh
 }
 
-func parseCSV(ctx context.Context, file *os.File, responseCh chan fileProcessorEvent) {
+func parseCSV(ctx context.Context, file *os.File, sendResult func(*csvProcessorEvent) bool) {
 
 	defaultSeparator := ','
 	if v, exist := os.LookupEnv("DEFAULT_CSV_SEPARATOR"); exist {
@@ -56,9 +66,9 @@ func parseCSV(ctx context.Context, file *os.File, responseCh chan fileProcessorE
 	convertToUTF8, exist := os.LookupEnv("CONVERT_TO_UTF8")
 	encodingReader, err := getEncodingReader(exist && (convertToUTF8 == "true"), file)
 	if err != nil {
-		responseCh <- &csvProcessorEvent{
+		sendResult(&csvProcessorEvent{
 			err: wrapError(fmt.Errorf("parseCSV: failed to create encoding Reader for %v file %w", file.Name(), err)),
-		}
+		})
 		return
 	}
 
@@ -68,9 +78,9 @@ func parseCSV(ctx context.Context, file *os.File, responseCh chan fileProcessorE
 	headers, err := reader.Read()
 	if err != nil {
 		if err != io.EOF {
-			responseCh <- &csvProcessorEvent{
+			sendResult(&csvProcessorEvent{
 				err: wrapError(fmt.Errorf("parseCSV: failed to read %v file header %w", file.Name(), err)),
-			}
+			})
 		}
 		return
 	}
@@ -84,27 +94,26 @@ func parseCSV(ctx context.Context, file *os.File, responseCh chan fileProcessorE
 		}
 
 		if err != nil {
-			responseCh <- &csvProcessorEvent{
+			sendResult(&csvProcessorEvent{
 				err: wrapError(fmt.Errorf("parseCSV: failed to read %v file %w", file.Name(), err)),
-			}
+			})
 			break
 		}
+		c++
 
 		row := make(map[string]string)
 		for i, header := range headers {
 			row[header] = data[i]
 		}
 
-		select {
-		case <-ctx.Done():
-			return
-		case responseCh <- &csvProcessorEvent{
+		if isDone := sendResult(&csvProcessorEvent{
 			line: c,
 			data: row,
 			file: file,
-		}:
+		}); isDone {
+			return
 		}
-		c++
+
 	}
 
 }
