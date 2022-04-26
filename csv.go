@@ -13,10 +13,6 @@ import (
 	"github.com/gogs/chardet"
 )
 
-type outputProcessor interface {
-	sendMessages(rows map[string]string) error
-}
-
 func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProcessorEvent {
 
 	resultCh := make(chan fileProcessorEvent)
@@ -40,7 +36,6 @@ func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProces
 				}
 
 				parseCSV(ctx, fileEvent.file(), resultCh)
-
 			}
 		}
 
@@ -49,21 +44,32 @@ func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProces
 	return resultCh
 }
 
-func parseCSV(ctx context.Context, file *os.File, output chan fileProcessorEvent) {
-	reader, err := csvReader(file)
+func parseCSV(ctx context.Context, file *os.File, responseCh chan fileProcessorEvent) {
+
+	defaultSeparator := ','
+	if v, exist := os.LookupEnv("DEFAULT_CSV_SEPARATOR"); exist {
+		for _, r := range v {
+			defaultSeparator = r
+		}
+	}
+
+	convertToUTF8, exist := os.LookupEnv("CONVERT_TO_UTF8")
+	encodingReader, err := getEncodingReader(exist && (convertToUTF8 == "true"), file)
 	if err != nil {
-		output <- &csvProcessorEvent{
-			err: fmt.Errorf("parseCSV:  %w", err),
+		responseCh <- &csvProcessorEvent{
+			err: wrapError(fmt.Errorf("parseCSV: failed to create encoding Reader for %v file %w", file.Name(), err)),
 		}
 		return
 	}
 
-	headers, err := reader.Read()
+	reader := csv.NewReader(encodingReader)
+	reader.Comma = defaultSeparator
 
+	headers, err := reader.Read()
 	if err != nil {
 		if err != io.EOF {
-			output <- &csvProcessorEvent{
-				err: fmt.Errorf("parseCSV: failed to read %v file header %w", file.Name(), err),
+			responseCh <- &csvProcessorEvent{
+				err: wrapError(fmt.Errorf("parseCSV: failed to read %v file header %w", file.Name(), err)),
 			}
 		}
 		return
@@ -78,8 +84,8 @@ func parseCSV(ctx context.Context, file *os.File, output chan fileProcessorEvent
 		}
 
 		if err != nil {
-			output <- &csvProcessorEvent{
-				err: fmt.Errorf("parseCSV: failed to read %v file %w", file.Name(), err),
+			responseCh <- &csvProcessorEvent{
+				err: wrapError(fmt.Errorf("parseCSV: failed to read %v file %w", file.Name(), err)),
 			}
 			break
 		}
@@ -92,53 +98,25 @@ func parseCSV(ctx context.Context, file *os.File, output chan fileProcessorEvent
 		select {
 		case <-ctx.Done():
 			return
-		case output <- &csvProcessorEvent{
+		case responseCh <- &csvProcessorEvent{
 			line: c,
 			data: row,
 			file: file,
 		}:
 		}
 		c++
-		fmt.Println(c)
 	}
 
 }
 
-func csvReader(file *os.File) (*csv.Reader, error) {
-
-	defaultSeparator := ','
-	if v, exist := os.LookupEnv("DEFAULT_CSV_SEPARATOR"); exist {
-		for _, r := range v {
-			defaultSeparator = r
-		}
-	}
-
-	encodingReader, err := getEncodingReader(file)
-	if err != nil {
-		return nil, fmt.Errorf("csvReader: failed to create encoding Reader for %v file %w", file.Name(), err)
-	}
-
-	csvReader := csv.NewReader(encodingReader)
-	csvReader.Comma = defaultSeparator
-
-	return csvReader, nil
-
-}
-
-func getEncodingReader(file *os.File) (io.Reader, error) {
-
-	convertToUTF8, exist := os.LookupEnv("CONVERT_TO_UTF8")
-	if exist && convertToUTF8 == "false" {
+func getEncodingReader(convertToUTF8 bool, file *os.File) (io.Reader, error) {
+	if convertToUTF8 {
 		return file, nil
 	} else {
 		encoding, err := detectEncoing(file)
-		fmt.Println(*encoding)
+		// fmt.Println(*encoding)
 		if err != nil {
 			return nil, fmt.Errorf("getEncodingReader: %w", err)
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("getEncodingReader: failed to initiate converter for %v encoding %w", encoding, err)
 		}
 		return iconv.NewReader(file, *encoding, "utf-8")
 	}

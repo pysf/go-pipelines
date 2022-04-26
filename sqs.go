@@ -24,10 +24,10 @@ func messages(ctx context.Context, queue string) chan s3Notification {
 	go func() {
 		defer close(resultCh)
 
-		sqsMessages, err := latesEvents(queue)
+		sqsMessages, err := latesMessage(queue)
 		if err != nil {
 			resultCh <- &s3PipelineEvent{
-				err: fmt.Errorf("getSQSEvents: failed %w", err),
+				err: fmt.Errorf("messages: %w", err),
 			}
 			return
 		}
@@ -50,24 +50,24 @@ func messages(ctx context.Context, queue string) chan s3Notification {
 
 }
 
-func latesEvents(queue string) ([]rawSQSRecord, error) {
+func latesMessage(queue string) ([]rawSQSRecord, error) {
 
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("eu-central-1"),
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("fetchLatesEvents: failed to connect to aws %w", err)
+		return nil, fmt.Errorf("latesEvents: failed to connect to aws %w", err)
 	}
 
 	urlResult, err := queueUrl(sess, queue)
 	if err != nil {
-		return nil, fmt.Errorf("fetchLatesEvents: %w", err)
+		return nil, fmt.Errorf("latesEvents: %w", err)
 	}
 
-	msgResult, err := sqsMessages(sess, urlResult.QueueUrl)
+	msgResult, err := sqsMessage(sess, urlResult.QueueUrl)
 	if err != nil {
-		return nil, fmt.Errorf("fetchLatesEvents: %w", err)
+		return nil, fmt.Errorf("latesEvents: %w", err)
 	}
 
 	fmt.Println(len(msgResult.Messages))
@@ -76,7 +76,7 @@ func latesEvents(queue string) ([]rawSQSRecord, error) {
 		// msg.ReceiptHandle
 		var message rawSQSBody
 		if err := json.Unmarshal([]byte(*msg.Body), &message); err != nil {
-			return nil, fmt.Errorf("fetchLatesEvents: failed to parse sqs message %w", err)
+			return nil, fmt.Errorf("latesEvents: failed to parse sqs message %w", err)
 		}
 		if len(message.Records) > 1 {
 			panic("more than one Record found in SQS msg")
@@ -90,7 +90,7 @@ func latesEvents(queue string) ([]rawSQSRecord, error) {
 	return result, nil
 }
 
-func sqsMessages(sess *session.Session, queueUrl *string) (*sqs.ReceiveMessageOutput, error) {
+func sqsMessage(sess *session.Session, queueUrl *string) (*sqs.ReceiveMessageOutput, error) {
 
 	svc := sqs.New(sess)
 	receivedMsg, err := svc.ReceiveMessage(&sqs.ReceiveMessageInput{
@@ -104,9 +104,8 @@ func sqsMessages(sess *session.Session, queueUrl *string) (*sqs.ReceiveMessageOu
 		MaxNumberOfMessages: aws.Int64(5),
 	})
 
-	fmt.Println(len(receivedMsg.Messages))
 	if err != nil {
-		return nil, fmt.Errorf("getMessages: faild to fetch messages from aws sqs %w", err)
+		return nil, fmt.Errorf("sqsMessages: faild to fetch messages from aws sqs %w", err)
 	}
 
 	return receivedMsg, nil

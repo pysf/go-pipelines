@@ -78,13 +78,13 @@ func download(bucket, key string) (*os.File, error) {
 		Region: aws.String("eu-central-1"),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("fetchS3Files: failed to connect to aws %w", err)
+		return nil, fmt.Errorf("download: failed to connect to aws %w", err)
 	}
 
 	downloader := s3manager.NewDownloader(sess)
 	f, err := ioutil.TempFile("", fmt.Sprintf("%v-*", key))
 	if err != nil {
-		return nil, fmt.Errorf("fetchS3Files: failed to create a new tmp file %w", err)
+		return nil, fmt.Errorf("download: failed to create a new tmp file %w", err)
 	}
 
 	_, err = downloader.Download(f, &s3.GetObjectInput{
@@ -99,36 +99,18 @@ func download(bucket, key string) (*os.File, error) {
 		if errors.As(err, &s3Error) {
 			switch s3Error.Code() {
 			case s3.ErrCodeNoSuchKey:
-				return nil, wrapError(fmt.Errorf("fetchS3Files: %v file not found %w ", key, err))
+				return nil, wrapError(fmt.Errorf("download: %v file not found %w ", key, err))
 			case s3.ErrCodeNoSuchBucket:
-				return nil, wrapError(fmt.Errorf("fetchS3Files: %v bucket not found %w ", key, err))
+				return nil, wrapError(fmt.Errorf("download: %v bucket not found %w ", key, err))
 			default:
-				return nil, fmt.Errorf("fetchS3Files: failed to download the file %v %w ", key, err)
+				return nil, fmt.Errorf("download: failed to download the file %v %w ", key, err)
 			}
 
 		} else {
-			return nil, fmt.Errorf("fetchS3Files: failed to download the file %v %w ", key, err)
+			return nil, fmt.Errorf("download: failed to download the file %v %w ", key, err)
 		}
 
 	}
 
 	return f, nil
 }
-
-// type s3File struct {
-// 	f      *os.File
-// 	err    error
-// 	onDone func()
-// }
-
-// func (e *s3File) file() *os.File {
-// 	return e.f
-// }
-
-// func (e *s3File) getError() error {
-// 	return e.err
-// }
-
-// func (e *s3File) done() {
-// 	e.onDone()
-// }

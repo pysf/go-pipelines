@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -17,7 +16,7 @@ import (
 type output struct {
 	done bool
 	err  error
-	a    string
+	data interface{}
 }
 
 func sendToKafka(ctx context.Context, fileProcessorCh chan fileProcessorEvent) chan output {
@@ -48,13 +47,29 @@ func sendToKafka(ctx context.Context, fileProcessorCh chan fileProcessorEvent) c
 			case <-ctx.Done():
 				return
 			case fpe, ok := <-fileProcessorCh:
-				// sendMessageToKafka(ctx, kw, fpe)
 				if !ok {
 					return
 				}
+
+				if fpe.getError() != nil {
+					sendResult(output{
+						done: false,
+						err:  fpe.getError(),
+					})
+					break
+				}
+				// kw, err := kafkaWriter()
+				// if err != nil {
+				// 	sendResult(output{
+				// 		done: false,
+				// 		err:  err,
+				// 	})
+				// 	break
+				// }
+				// sendMessageToKafka(ctx, kw, fpe)
 				sendResult(output{
 					done: true,
-					a:    fpe.fileName(),
+					data: fpe.getData(),
 				})
 			}
 		}
@@ -67,22 +82,22 @@ func sendToKafka(ctx context.Context, fileProcessorCh chan fileProcessorEvent) c
 func kafkaWriter() (*kafka.Writer, error) {
 	topic, exist := os.LookupEnv("KAFKA_TOPIC")
 	if !exist {
-		return nil, errors.New("sendToKafka: KAFKA_TOPIC is empty ")
+		return nil, fmt.Errorf("sendToKafka: KAFKA_TOPIC is empty ")
 	}
 
 	username, exist := os.LookupEnv("KAFKA_USERNAME")
 	if !exist {
-		return nil, errors.New("sendToKafka: KAFKA_USERNAME is empty ")
+		return nil, fmt.Errorf("sendToKafka: KAFKA_USERNAME is empty ")
 	}
 
 	password, exist := os.LookupEnv("KAFKA_PASSWORD")
 	if !exist {
-		return nil, errors.New("sendToKafka: KAFKA_PASSWORD is empty ")
+		return nil, fmt.Errorf("sendToKafka: KAFKA_PASSWORD is empty ")
 	}
 
 	brokers, exist := os.LookupEnv("KAFKA_BROKERS")
 	if !exist {
-		return nil, errors.New("sendToKafka: KAFKA_BROKERS is empty ")
+		return nil, fmt.Errorf("sendToKafka: KAFKA_BROKERS is empty ")
 	}
 
 	dialer := &kafka.Dialer{
@@ -115,17 +130,16 @@ func sendMessageToKafka(ctx context.Context, kw *kafka.Writer, fpe fileProcessor
 	if err != nil {
 		return err
 	}
-	fmt.Println("sendToKafka", string(jsonStr))
 
-	// err = kw.WriteMessages(ctx, kafka.Message{
-	// 	Key:   []byte(""),
-	// 	Value: jsonStr,
-	// })
+	err = kw.WriteMessages(ctx, kafka.Message{
+		Key:   []byte(""),
+		Value: jsonStr,
+	})
 
-	// if err != nil {
-	// 	fmt.Println("sendToKafka", err)
-	// 	return err
-	// }
+	if err != nil {
+		fmt.Println("sendToKafka", err)
+		return err
+	}
 
 	return nil
 }
