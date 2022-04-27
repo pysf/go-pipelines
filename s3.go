@@ -14,30 +14,13 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-type fileEvent interface {
-	file() *os.File
-	getError() error
-	done()
-}
+func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileInfo {
 
-func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileEvent {
-
-	resultCh := make(chan fileEvent)
+	resultCh := make(chan fileInfo)
 
 	go func() {
 		defer close(resultCh)
 		defer fmt.Println("s3 closing...")
-
-		// sendResult := func(r fileEvent) {
-		// 	for {
-		// 		select {
-		// 		case <-ctx.Done():
-		// 			return
-		// 		case resultCh <- r:
-		// 			return
-		// 		}
-		// 	}
-		// }
 
 		for {
 
@@ -50,7 +33,7 @@ func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileE
 				}
 
 				if s3Notif.getError() != nil {
-					resultCh <- &s3PipelineEvent{
+					resultCh <- &s3File{
 						err: s3Notif.getError(),
 					}
 				}
@@ -60,7 +43,7 @@ func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileE
 				select {
 				case <-ctx.Done():
 					return
-				case resultCh <- &s3PipelineEvent{
+				case resultCh <- &s3File{
 					f:   file,
 					err: err,
 					onDone: func() {
@@ -119,4 +102,22 @@ func download(bucket, key string) (*os.File, error) {
 	}
 
 	return f, nil
+}
+
+type s3File struct {
+	f      *os.File
+	err    error
+	onDone func()
+}
+
+func (e *s3File) done() {
+	e.onDone()
+}
+
+func (e *s3File) getError() error {
+	return e.err
+}
+
+func (e *s3File) file() *os.File {
+	return e.f
 }

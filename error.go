@@ -1,6 +1,9 @@
 package main
 
-import "runtime/debug"
+import (
+	"encoding/json"
+	"runtime/debug"
+)
 
 type pipelineError struct {
 	Inner      error
@@ -17,6 +20,14 @@ func wrapError(err error) *pipelineError {
 	}
 }
 
-func (f *pipelineError) Error() string {
-	return f.Inner.Error()
+func (pe *pipelineError) Error() string {
+	return pe.Inner.Error()
+}
+
+func (pe *pipelineError) toJSON() ([]byte, error) {
+	data := map[string]interface{}{
+		"meta":    pe.Misc,
+		"message": pe.Error(),
+	}
+	return json.Marshal(data)
 }

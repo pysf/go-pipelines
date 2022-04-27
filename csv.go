@@ -13,10 +13,10 @@ import (
 	"github.com/gogs/chardet"
 )
 
-func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProcessorEvent {
+func processCsv(ctx context.Context, fileEventCh chan fileInfo) chan fileRow {
 
-	resultCh := make(chan fileProcessorEvent)
-	sendResult := func(r *csvProcessorEvent) bool {
+	resultCh := make(chan fileRow)
+	sendResult := func(r *csvRow) bool {
 		select {
 		case <-ctx.Done():
 			return true
@@ -39,7 +39,7 @@ func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProces
 				}
 
 				if fileEvent.getError() != nil {
-					sendResult(&csvProcessorEvent{
+					sendResult(&csvRow{
 						err: fileEvent.getError(),
 					})
 					break
@@ -54,7 +54,7 @@ func processCsv(ctx context.Context, fileEventCh chan fileEvent) chan fileProces
 	return resultCh
 }
 
-func parseCSV(ctx context.Context, file *os.File, sendResult func(*csvProcessorEvent) bool) {
+func parseCSV(ctx context.Context, file *os.File, sendResult func(*csvRow) bool) {
 
 	defaultSeparator := ','
 	if v, exist := os.LookupEnv("DEFAULT_CSV_SEPARATOR"); exist {
@@ -66,7 +66,7 @@ func parseCSV(ctx context.Context, file *os.File, sendResult func(*csvProcessorE
 	convertToUTF8, exist := os.LookupEnv("CONVERT_TO_UTF8")
 	encodingReader, err := getEncodingReader(exist && (convertToUTF8 == "true"), file)
 	if err != nil {
-		sendResult(&csvProcessorEvent{
+		sendResult(&csvRow{
 			err: wrapError(fmt.Errorf("parseCSV: failed to create encoding Reader for %v file %w", file.Name(), err)),
 		})
 		return
@@ -78,7 +78,7 @@ func parseCSV(ctx context.Context, file *os.File, sendResult func(*csvProcessorE
 	headers, err := reader.Read()
 	if err != nil {
 		if err != io.EOF {
-			sendResult(&csvProcessorEvent{
+			sendResult(&csvRow{
 				err: wrapError(fmt.Errorf("parseCSV: failed to read %v file header %w", file.Name(), err)),
 			})
 		}
@@ -94,7 +94,7 @@ func parseCSV(ctx context.Context, file *os.File, sendResult func(*csvProcessorE
 		}
 
 		if err != nil {
-			sendResult(&csvProcessorEvent{
+			sendResult(&csvRow{
 				err: wrapError(fmt.Errorf("parseCSV: failed to read %v file %w", file.Name(), err)),
 			})
 			break
@@ -106,7 +106,7 @@ func parseCSV(ctx context.Context, file *os.File, sendResult func(*csvProcessorE
 			row[header] = data[i]
 		}
 
-		if isDone := sendResult(&csvProcessorEvent{
+		if isDone := sendResult(&csvRow{
 			line: c,
 			data: row,
 			file: file,
@@ -162,4 +162,27 @@ func detectEncoing(f *os.File) (*string, error) {
 		return nil, fmt.Errorf("detectEncoing: failed to detect encoding")
 	}
 	return &chardetResult.Charset, nil
+}
+
+type csvRow struct {
+	err  error
+	line int
+	file *os.File
+	data interface{}
+}
+
+func (ki *csvRow) lineNumber() int {
+	return ki.line
+}
+
+func (ki *csvRow) fileName() string {
+	return ki.file.Name()
+}
+
+func (ki *csvRow) getData() interface{} {
+	return ki.data
+}
+
+func (ki *csvRow) getError() error {
+	return ki.err
 }

@@ -10,13 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
-type s3Notification interface {
-	bucket() string
-	key() string
-	getError() error
-	done()
-}
-
 func messages(ctx context.Context, queue string) chan s3Notification {
 
 	resultCh := make(chan s3Notification)
@@ -27,7 +20,7 @@ func messages(ctx context.Context, queue string) chan s3Notification {
 
 		sqsMessages, err := latesMessage(queue)
 		if err != nil {
-			resultCh <- &s3PipelineEvent{
+			resultCh <- &sqsS3Event{
 				err: fmt.Errorf("messages: %w", err),
 			}
 			return
@@ -37,7 +30,7 @@ func messages(ctx context.Context, queue string) chan s3Notification {
 			select {
 			case <-ctx.Done():
 				return
-			case resultCh <- &s3PipelineEvent{
+			case resultCh <- &sqsS3Event{
 				message: message,
 				onDone: func() {
 					fmt.Printf("I need to remove this message from sqs %v", message.ReceiptHandle)
@@ -148,4 +141,26 @@ type rawBucketData struct {
 type rawObjectData struct {
 	Key  string
 	Size int
+}
+
+type sqsS3Event struct {
+	err     error
+	message rawSQSRecord
+	onDone  func()
+}
+
+func (e *sqsS3Event) bucket() string {
+	return e.message.S3.Bucket.Name
+}
+
+func (e *sqsS3Event) key() string {
+	return e.message.S3.Object.Key
+}
+
+func (e *sqsS3Event) done() {
+	e.onDone()
+}
+
+func (e *sqsS3Event) getError() error {
+	return e.err
 }
