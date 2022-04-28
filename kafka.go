@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,49 +14,65 @@ import (
 	"github.com/segmentio/kafka-go/sasl/plain"
 )
 
-const stage string = "kafka"
+func createKafkaValueMsg(ctx context.Context, fileRowCh chan fileRow) chan kafkaMessageInt {
 
-func sendRowToKafka(ctx context.Context, fileProcessorCh chan fileRow) chan error {
-
-	resultCh := make(chan error)
-
-	sendResult := func(e error) bool {
-		select {
-		case <-ctx.Done():
-			return true
-		case resultCh <- e:
-			return false
-		}
-	}
+	resultCh := make(chan kafkaMessageInt)
+	const stage string = "kafka"
 
 	go func() {
 		defer close(resultCh)
-		defer fmt.Println("kafka closing...")
+		defer fmt.Println("createKafkaValueMsg closing...")
 
-		kafkaProducer, err := createKafkaValueProducer(ctx, sendResult)
-		if err != nil {
-			sendResult(err)
-			return
+		sendResult := func(e *kafkaMessage) {
+			select {
+			case <-ctx.Done():
+			case resultCh <- e:
+			}
 		}
-
-		fpEvents := []fileRow{}
 
 		for {
 			select {
 			case <-ctx.Done():
-				kafkaProducer(fpEvents)
 				return
-			case fpEvent, ok := <-fileProcessorCh:
+			case rowEvent, ok := <-fileRowCh:
 				if !ok {
-					kafkaProducer(fpEvents)
 					return
 				}
 
-				fpEvents = append(fpEvents, fpEvent)
-				if len(fpEvents) >= 100 {
-					kafkaProducer(fpEvents)
-					fpEvents = []fileRow{}
+				if rowEvent.getError() != nil {
+					sendResult(&kafkaMessage{
+						err: rowEvent.getError(),
+					})
+					break
 				}
+
+				row := (rowEvent.getData()).(map[string]string)
+				jsonStr, err := json.Marshal(row)
+				if err != nil {
+					e := wrapError(fmt.Errorf("createKafkaMessage: json marshal failed %w", err))
+					e.Misc = map[string]interface{}{
+						"file":       rowEvent.fileName,
+						"lineNumber": rowEvent.lineNumber(),
+						"stage":      stage,
+					}
+					sendResult(&kafkaMessage{
+						err: e,
+					})
+					break
+				}
+
+				sendResult(&kafkaMessage{
+					msg: &kafka.Message{
+						Key:   []byte(rowEvent.fileName()),
+						Value: jsonStr,
+					},
+				})
+
+				if rowEvent.getOnDone() != nil {
+					f := *rowEvent.getOnDone()
+					f()
+				}
+
 			}
 		}
 
@@ -64,73 +81,171 @@ func sendRowToKafka(ctx context.Context, fileProcessorCh chan fileRow) chan erro
 	return resultCh
 }
 
-func createKafkaValueProducer(ctx context.Context, sendResult func(r error) bool) (func(rows []fileRow), error) {
+type kafkaMessage struct {
+	msg  *kafka.Message
+	done *func()
+	err  error
+}
 
-	topic, exist := os.LookupEnv("KAFKA_TOPIC")
-	if !exist {
-		return nil, fmt.Errorf("sendToKafka: KAFKA_TOPIC is empty ")
-	}
+func (km *kafkaMessage) getOnDone() *func() {
+	return km.done
+}
+
+func (km *kafkaMessage) message() *kafka.Message {
+	return km.msg
+}
+
+func (km *kafkaMessage) getError() error {
+	return km.err
+}
+
+func createKafkaErrMsg(ctx context.Context, genericEventCh chan genericEventInt) chan kafkaMessageInt {
+
+	resultCh := make(chan kafkaMessageInt)
+
+	go func() {
+		defer close(resultCh)
+		defer fmt.Println("createKafkaErrMsg closing...")
+
+		sendResult := func(e *kafkaMessage) {
+			select {
+			case <-ctx.Done():
+			case resultCh <- e:
+			}
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case gEvnt, ok := <-genericEventCh:
+
+				if !ok {
+					return
+				}
+
+				if gEvnt.getError() != nil {
+
+					var kafkaErrMsg *kafkaMessage
+					var appErr *appError
+
+					if errors.As(gEvnt.getError(), &appErr) {
+						data, err := appErr.toJSON()
+						if err != nil {
+							panic(err)
+						}
+
+						kafkaErrMsg = &kafkaMessage{
+							msg: &kafka.Message{
+								Key:   []byte(""),
+								Value: data,
+							},
+						}
+
+					} else {
+
+						kafkaErrMsg = &kafkaMessage{
+							msg: &kafka.Message{
+								Key:   []byte(""),
+								Value: []byte(gEvnt.getError().Error()),
+							},
+						}
+
+					}
+
+					sendResult(kafkaErrMsg)
+
+					if gEvnt.getOnDone() != nil {
+						f := *gEvnt.getOnDone()
+						f()
+					}
+				}
+
+			}
+		}
+
+	}()
+	return resultCh
+}
+
+func sendToKafka(ctx context.Context, kafkaMessageCh chan kafkaMessageInt, topic string) chan genericEventInt {
+
+	resultCh := make(chan genericEventInt)
 
 	kw, err := kafkaWriter(topic)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	return func(rows []fileRow) {
+	go func() {
+		defer close(resultCh)
+		defer fmt.Println("sendToKafka closing...")
 
-		kafkaMessages := []kafka.Message{}
-
-		for _, fpEvent := range rows {
-
-			if fpEvent.getError() != nil {
-				sendResult(fpEvent.getError())
-				continue
+		sendResult := func(r *genericEvent) {
+			select {
+			case <-ctx.Done():
+				return
+			case resultCh <- r:
 			}
 
-			row := (fpEvent.getData()).(map[string]string)
-			jsonStr, err := json.Marshal(row)
-			if err != nil {
-				e := wrapError(fmt.Errorf("sendMessageToKafka: json marshal failed %w", err))
-				e.Misc = map[string]interface{}{
-					"file":       fpEvent.fileName,
-					"lineNumber": fpEvent.lineNumber(),
-					"stage":      stage,
+		}
+
+		messageChunk := []kafka.Message{}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case kafkaMSG, ok := <-kafkaMessageCh:
+
+				if !ok {
+					if err := kw.WriteMessages(ctx, messageChunk...); err != nil {
+						panic(err)
+					}
+					return
 				}
-				sendResult(e)
-				continue
+
+				if kafkaMSG.getError() != nil {
+					sendResult(&genericEvent{
+						err: kafkaMSG.getError(),
+					})
+					break
+				}
+
+				messageChunk = append(messageChunk, *kafkaMSG.message())
+				if len(messageChunk) >= 50 {
+					if err := kw.WriteMessages(ctx, messageChunk...); err != nil {
+						panic(err)
+					}
+					messageChunk = []kafka.Message{}
+				}
+
+				if kafkaMSG.getOnDone() != nil {
+					f := *kafkaMSG.getOnDone()
+					f()
+				}
+
 			}
-
-			kafkaMessages = append(kafkaMessages, kafka.Message{
-				Key:   []byte(fpEvent.fileName()),
-				Value: jsonStr,
-			})
 		}
 
-		err := kw.WriteMessages(ctx, kafkaMessages...)
-		if err != nil {
-			sendResult(fmt.Errorf("sendMessageToKafka: failed %w", err))
-			return
-		}
-
-	}, nil
-
+	}()
+	return resultCh
 }
 
 func kafkaWriter(topic string) (*kafka.Writer, error) {
 
 	username, exist := os.LookupEnv("KAFKA_USERNAME")
 	if !exist {
-		return nil, fmt.Errorf("sendToKafka: KAFKA_USERNAME is empty ")
+		panic(fmt.Errorf("sendToKafka: KAFKA_USERNAME is empty "))
 	}
 
 	password, exist := os.LookupEnv("KAFKA_PASSWORD")
 	if !exist {
-		return nil, fmt.Errorf("sendToKafka: KAFKA_PASSWORD is empty ")
+		panic(fmt.Errorf("sendToKafka: KAFKA_PASSWORD is empty "))
 	}
 
 	brokers, exist := os.LookupEnv("KAFKA_BROKERS")
 	if !exist {
-		return nil, fmt.Errorf("sendToKafka: KAFKA_BROKERS is empty ")
+		panic(fmt.Errorf("sendToKafka: KAFKA_BROKERS is empty "))
 	}
 
 	dialer := &kafka.Dialer{

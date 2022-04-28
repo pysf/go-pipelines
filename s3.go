@@ -18,42 +18,47 @@ func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileI
 
 	resultCh := make(chan fileInfo)
 
+	sendResult := func(r *s3File) {
+		select {
+		case <-ctx.Done():
+			return
+		case resultCh <- r:
+			return
+		}
+	}
+
 	go func() {
 		defer close(resultCh)
-		defer fmt.Println("s3 closing...")
+		defer fmt.Println("S3 closing")
 
 		for {
 
 			select {
 			case <-ctx.Done():
 				return
-			case s3Notif, ok := <-s3NotificationCh:
+			case sqsMsg, ok := <-s3NotificationCh:
 				if !ok {
 					return
 				}
 
-				if s3Notif.getError() != nil {
-					resultCh <- &s3File{
-						err: s3Notif.getError(),
-					}
+				if sqsMsg.getError() != nil {
+					sendResult(&s3File{
+						err: sqsMsg.getError(),
+					})
+					break
 				}
 
-				file, err := download(s3Notif.bucket(), s3Notif.key())
+				file, err := download(sqsMsg.bucket(), sqsMsg.key())
 
-				select {
-				case <-ctx.Done():
-					return
-				case resultCh <- &s3File{
+				sendResult(&s3File{
 					f:   file,
 					err: err,
-					onDone: func() {
-						s3Notif.done()
-						fmt.Println("S3 on done")
-					},
-				}:
+				})
 
+				if sqsMsg.getOnDone() != nil {
+					f := *sqsMsg.getOnDone()
+					f()
 				}
-
 			}
 		}
 	}()
@@ -105,13 +110,13 @@ func download(bucket, key string) (*os.File, error) {
 }
 
 type s3File struct {
-	f      *os.File
-	err    error
-	onDone func()
+	f    *os.File
+	err  error
+	done *func()
 }
 
-func (e *s3File) done() {
-	e.onDone()
+func (e *s3File) getOnDone() *func() {
+	return e.done
 }
 
 func (e *s3File) getError() error {
