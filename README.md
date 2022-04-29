@@ -1,4 +1,4 @@
-# GO Pipeline
+# GO Pipelines
 
 ## overview
 
