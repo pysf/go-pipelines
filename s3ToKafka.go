@@ -6,6 +6,12 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/pysf/go-pipelines/pkg/csv"
+	"github.com/pysf/go-pipelines/pkg/kafka"
+	"github.com/pysf/go-pipelines/pkg/pipeline"
+	"github.com/pysf/go-pipelines/pkg/s3"
+	"github.com/pysf/go-pipelines/pkg/sqs"
 )
 
 var QUEUE string = "s3-events"
@@ -26,22 +32,22 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	resultCh := sendToKafka(ctx, createKafkaErrMsg(ctx, sendToKafka(ctx, createKafkaValueMsg(ctx, processCsv(ctx, fetch(ctx, messages(ctx, QUEUE)))), valueTopic)), errTopic)
+	resultCh := kafka.SendMessage(ctx, kafka.CreateErrMsg(ctx, kafka.SendMessage(ctx, kafka.CreateValueMsg(ctx, csv.Process(ctx, s3.Fetch(ctx, sqs.Messages(ctx, QUEUE)))), valueTopic)), errTopic)
 
 	for result := range resultCh {
 
-		if result.getError() != nil {
-			var pip *appError
-			if errors.As(result.getError(), &pip) {
+		if result.GetError() != nil {
+			var pip *pipeline.AppError
+			if errors.As(result.GetError(), &pip) {
 				fmt.Printf("Error: %v \n", pip.Error())
 				continue
 			} else {
-				fmt.Printf("Critical Error: %v \n", result.getError())
+				fmt.Printf("Critical Error: %v \n", result.GetError())
 				panic(result)
 			}
 		} else {
-			if result.getOnDone() != nil {
-				f := *result.getOnDone()
+			if result.GetOnDone() != nil {
+				f := *result.GetOnDone()
 				f()
 			}
 		}
