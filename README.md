@@ -10,5 +10,5 @@ The first pipeline is about reading CSV files from an S3 bucket and sending the 
 The output would be:
 
 - Executable binary
-- AWS lambda docker
+- AWS lambda docker image
 - Stand-alone docker image
