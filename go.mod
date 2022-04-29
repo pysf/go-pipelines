@@ -1,4 +1,5 @@
 module github.com/pysf/go-pipelines
+
 go 1.18
 
 require (
