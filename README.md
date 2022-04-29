@@ -2,5 +2,6 @@
 
 ## overview
 
-This is a Go application with different pipelines to read and transfer data from different sources to different destinations.
+This repo contains different goroutin to create pipelines for processing and transfering data.
 The first pipeline is about reading CSV files from an S3 bucket and sending the data to a Kafka cluster.
+[S3-To-Kafka](https://github.com/pysf/s3-to-kafka)
