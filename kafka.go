@@ -212,7 +212,7 @@ func sendToKafka(ctx context.Context, kafkaMessageCh chan kafkaMessageInt, topic
 				}
 
 				messageChunk = append(messageChunk, *kafkaMSG.message())
-				if len(messageChunk) >= 50 {
+				if len(messageChunk) >= 100 {
 					if err := kw.WriteMessages(ctx, messageChunk...); err != nil {
 						panic(err)
 					}

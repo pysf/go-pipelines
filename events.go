@@ -1,9 +1,8 @@
 package main
 
 import (
-	"os"
-
 	"github.com/segmentio/kafka-go"
+	"os"
 )
 
 type genericEventInt interface {
