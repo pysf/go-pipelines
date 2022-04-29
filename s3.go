@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-func fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileInfo {
+func Fetch(ctx context.Context, s3NotificationCh chan s3Notification) chan fileInfo {
 
 	resultCh := make(chan fileInfo)
 
