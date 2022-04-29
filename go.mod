@@ -1,5 +1,4 @@
-module github.com/pysf/s3-to-kafka-go
-
+module github.com/pysf/go-pipelines
 go 1.18
 
 require (
