@@ -14,7 +14,7 @@ func TestProcessCSV(t *testing.T) {
 		fileInfo   FileInfo
 		csvContent string
 		sep        rune
-		expect     map[string]string
+		expect     *csvRow
 	}{
 		{
 			fileInfo: &S3File{
@@ -22,10 +22,14 @@ func TestProcessCSV(t *testing.T) {
 				fileName: "test.csv",
 			},
 			sep: rune(';'),
-			expect: map[string]string{
-				"name":   "payam",
-				"family": "yousefi",
-				"age":    "38",
+			expect: &csvRow{
+				data: map[string]string{
+					"name":   "payam",
+					"family": "yousefi",
+					"age":    "38",
+				},
+				line:     1,
+				fileName: "test.csv",
 			},
 		},
 	}
@@ -45,9 +49,10 @@ func TestProcessCSV(t *testing.T) {
 
 		select {
 		case csvRow := <-resultCh:
-			if !reflect.DeepEqual(csvRow.Data(), c.expect) {
+			if !reflect.DeepEqual(csvRow, c.expect) {
 				t.Fatalf("%d ,expected %v , got  %v", i, c.expect, csvRow)
 			}
+
 		case <-time.After(1 * time.Second):
 			t.Fatalf("%d ,timedout!", i)
 		}

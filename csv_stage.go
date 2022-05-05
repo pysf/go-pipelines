@@ -70,7 +70,7 @@ func (cp *csvProcessor) ProcessCSV(ctx context.Context, fileEventCh chan FileInf
 					break
 				}
 
-				var lineCounter int
+				lineCounter := 1
 
 				for {
 
