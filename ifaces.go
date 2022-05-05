@@ -1,26 +1,14 @@
 package pipeline
 
 import (
+	"io"
+
 	"github.com/segmentio/kafka-go"
-	"os"
 )
 
 type GenericEventInt interface {
 	GetError() error
 	GetOnDone() *func()
-}
-
-type GenericEvent struct {
-	Err  error
-	Done *func()
-}
-
-func (ee *GenericEvent) GetError() error {
-	return ee.Err
-}
-
-func (ge *GenericEvent) GetOnDone() *func() {
-	return ge.Done
 }
 
 type KafkaMessageInt interface {
@@ -31,13 +19,14 @@ type KafkaMessageInt interface {
 
 type FileInfo interface {
 	GenericEventInt
-	File() *os.File
+	File() io.Reader
+	FileName() string
 }
 
 type FileRow interface {
-	LineNumber() int
 	FileName() string
-	GetData() interface{}
+	LineNumber() int
+	Data() interface{}
 	GenericEventInt
 }
 

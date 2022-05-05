@@ -12,7 +12,7 @@ type AppError struct {
 	Misc       map[string]interface{}
 }
 
-func WrapError(err error) *AppError {
+func wrapError(err error) *AppError {
 	return &AppError{
 		Inner:      err,
 		Stacktrace: string(debug.Stack()),
@@ -24,7 +24,7 @@ func (pe *AppError) Error() string {
 	return pe.Inner.Error()
 }
 
-func (pe *AppError) ToJSON() ([]byte, error) {
+func (pe *AppError) toJSON() ([]byte, error) {
 	data := map[string]interface{}{
 		"meta":    pe.Misc,
 		"message": pe.Error(),

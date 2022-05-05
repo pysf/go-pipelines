@@ -1,4 +1,4 @@
-package kafka
+package pipeline
 
 import (
 	"crypto/tls"
