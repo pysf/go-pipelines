@@ -14,7 +14,7 @@ func TestProcessCSV(t *testing.T) {
 		fileInfo   FileInfo
 		csvContent string
 		sep        rune
-		expect     *csvRow
+		expect     FileRow
 	}{
 		{
 			fileInfo: &S3File{

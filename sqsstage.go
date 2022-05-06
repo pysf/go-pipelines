@@ -28,13 +28,13 @@ type sqsStage struct {
 	sqsQueue sqsQueue
 }
 
-func (s sqsStage) GetS3Message(ctx context.Context) chan S3Notification {
+func (s sqsStage) ReadMessages(ctx context.Context) chan S3Notification {
 
 	resultCh := make(chan S3Notification)
 	go func() {
 		defer close(resultCh)
 
-		sqsMessages, err := s.sqsQueue.getMessages(10)
+		sqsMessages, err := s.sqsQueue.fetchMessages(10)
 		if err != nil {
 			resultCh <- &SQSS3Event{
 				err: fmt.Errorf("messages: %w", err),
@@ -66,7 +66,7 @@ type sqsQueue struct {
 	url    string
 }
 
-func (q *sqsQueue) getMessages(numberOfMSG int64) ([]Record, error) {
+func (q *sqsQueue) fetchMessages(numberOfMSG int64) ([]Record, error) {
 
 	receivedMsg, err := q.client.ReceiveMessage(&sqs.ReceiveMessageInput{
 		AttributeNames: []*string{

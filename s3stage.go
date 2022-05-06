@@ -34,7 +34,7 @@ type s3Stage struct {
 	client s3Client
 }
 
-func (stg s3Stage) FetchFile(ctx context.Context, s3NotificationCh chan S3Notification) chan FileInfo {
+func (stg s3Stage) Fetch(ctx context.Context, s3NotificationCh chan S3Notification) chan FileInfo {
 
 	resultCh := make(chan FileInfo)
 
@@ -70,7 +70,7 @@ func (stg s3Stage) FetchFile(ctx context.Context, s3NotificationCh chan S3Notifi
 				fmt.Println(sqsMsg.Bucket())
 				fmt.Println(sqsMsg.Key())
 
-				file, err := stg.client.fetch(sqsMsg.Bucket(), sqsMsg.Key())
+				file, err := stg.client.downloadS3File(sqsMsg.Bucket(), sqsMsg.Key())
 
 				if err != nil {
 					sendResult(&S3File{
@@ -100,7 +100,7 @@ type s3Client struct {
 	downloader s3manageriface.DownloaderAPI
 }
 
-func (s *s3Client) fetch(bucket, key string) (*os.File, error) {
+func (s *s3Client) downloadS3File(bucket, key string) (*os.File, error) {
 
 	tmpf, err := ioutil.TempFile("", fmt.Sprintf("%v-*", key))
 	if err != nil {

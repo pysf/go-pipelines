@@ -32,7 +32,6 @@ func (cp *csvProcessor) ProcessCSV(ctx context.Context, fileEventCh chan FileInf
 
 	go func() {
 		defer close(resultCh)
-		defer fmt.Println("csv closing...")
 
 		for {
 			select {

@@ -23,7 +23,7 @@ func (sm downloaderMock) Download(destination io.WriterAt, s3Object *s3.GetObjec
 	return int64(n), err
 }
 
-func TestDownload(t *testing.T) {
+func TestDownloadS3File(t *testing.T) {
 
 	cases := []struct {
 		fileContent string
@@ -48,7 +48,7 @@ func TestDownload(t *testing.T) {
 				fileText: c.fileContent,
 			},
 		}
-		f, err := s3Client.fetch(c.bucket, c.key)
+		f, err := s3Client.downloadS3File(c.bucket, c.key)
 
 		if err != nil {
 			t.Fatalf("case (%d) unexpected method called", i)

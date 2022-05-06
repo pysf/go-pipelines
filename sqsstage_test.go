@@ -69,7 +69,7 @@ func TestGetMessage(t *testing.T) {
 			url:    "test-queue",
 		}
 
-		resp, err := q.getMessages(10)
+		resp, err := q.fetchMessages(10)
 		if err != nil {
 			t.Fatalf("unexpected err %v", err)
 		}
@@ -82,7 +82,7 @@ func TestGetMessage(t *testing.T) {
 
 }
 
-func TestSQSStage(t *testing.T) {
+func TestFetchMessages(t *testing.T) {
 
 	cases := []struct {
 		queue  sqsQueue
@@ -137,11 +137,11 @@ func TestSQSStage(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		sqss := sqsStage{
+		sqsReader := sqsStage{
 			sqsQueue: c.queue,
 		}
 		ctx := context.Background()
-		resultCh := sqss.GetS3Message(ctx)
+		resultCh := sqsReader.ReadMessages(ctx)
 
 		select {
 		case s3Nontif, ok := <-resultCh:
