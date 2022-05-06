@@ -25,7 +25,6 @@ type FileInfo interface {
 
 type FileRow interface {
 	FileName() string
-	LineNumber() int
 	Data() interface{}
 	GenericEventInt
 }

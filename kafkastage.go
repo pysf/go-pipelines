@@ -15,26 +15,19 @@ import (
 )
 
 func NewKafkaStege(valueTopic, errorTopic string) *kafkaStage {
-	kr, err := kafkaWriter()
-	if err != nil {
-		panic(fmt.Errorf("failed to create kafka client %w", err))
-	}
 
-	messageBatch := messageBatch{
-		client: kr,
-	}
-
+	batcher := NewMessageBatcher()
 	return &kafkaStage{
-		valueTopic:   valueTopic,
-		errorTopic:   errorTopic,
-		messageBatch: messageBatch,
+		valueTopic:     valueTopic,
+		errorTopic:     errorTopic,
+		messageBatcher: batcher,
 	}
 }
 
 type kafkaStage struct {
 	errorTopic string
 	valueTopic string
-	messageBatch
+	*messageBatcher
 }
 
 func (kafkaStage *kafkaStage) CreateMessage(ctx context.Context, fileRowCh chan FileRow) chan KafkaMessageInt {
@@ -141,7 +134,7 @@ func (km *kafkaMessage) GetError() error {
 	return km.err
 }
 
-func (ks *kafkaStage) SendMessage(ctx context.Context, kafkaMessageCh chan KafkaMessageInt, topic string) chan GenericEventInt {
+func (ks *kafkaStage) SendMessage(ctx context.Context, kafkaMessageCh chan KafkaMessageInt) chan GenericEventInt {
 
 	resultCh := make(chan GenericEventInt)
 
@@ -165,7 +158,7 @@ func (ks *kafkaStage) SendMessage(ctx context.Context, kafkaMessageCh chan Kafka
 			case kafkaMSG, ok := <-kafkaMessageCh:
 
 				if !ok {
-					if err := ks.messageBatch.send(ctx); err != nil {
+					if err := ks.messageBatcher.send(ctx); err != nil {
 						panic(err)
 					}
 					return
@@ -178,12 +171,12 @@ func (ks *kafkaStage) SendMessage(ctx context.Context, kafkaMessageCh chan Kafka
 					break
 				}
 
-				ks.messageBatch.add(*kafkaMSG.Message())
-				if ks.messageBatch.size() >= 100 {
-					if err := ks.messageBatch.send(ctx); err != nil {
+				ks.messageBatcher.add(*kafkaMSG.Message())
+				if ks.messageBatcher.size() >= 100 {
+					if err := ks.messageBatcher.send(ctx); err != nil {
 						panic(err)
 					}
-					ks.messageBatch.flush()
+					ks.messageBatcher.flush()
 				}
 
 				if kafkaMSG.GetOnDone() != nil {
@@ -198,7 +191,7 @@ func (ks *kafkaStage) SendMessage(ctx context.Context, kafkaMessageCh chan Kafka
 	return resultCh
 }
 
-func kafkaWriter() (*kafka.Writer, error) {
+func kafkaClient() (*kafka.Writer, error) {
 
 	username, exist := os.LookupEnv("KAFKA_USERNAME")
 	if !exist {
@@ -235,23 +228,34 @@ func kafkaWriter() (*kafka.Writer, error) {
 	}), nil
 }
 
-type messageBatch struct {
-	client   *kafka.Writer
-	messages []kafka.Message
+func NewMessageBatcher() *messageBatcher {
+	client, err := kafkaClient()
+	if err != nil {
+		panic(fmt.Errorf("failed to create kafka client %w", err))
+	}
+
+	return &messageBatcher{
+		kafkaClient: client,
+	}
 }
 
-func (mb *messageBatch) size() int {
+type messageBatcher struct {
+	kafkaClient *kafka.Writer
+	messages    []kafka.Message
+}
+
+func (mb *messageBatcher) size() int {
 	return len(mb.messages)
 }
 
-func (mb *messageBatch) add(m kafka.Message) {
+func (mb *messageBatcher) add(m kafka.Message) {
 	mb.messages = append(mb.messages, m)
 }
 
-func (mb *messageBatch) flush() {
+func (mb *messageBatcher) flush() {
 	mb.messages = make([]kafka.Message, 0)
 }
 
-func (mb *messageBatch) send(ctx context.Context) error {
-	return mb.client.WriteMessages(ctx, mb.messages...)
+func (mb *messageBatcher) send(ctx context.Context) error {
+	return mb.kafkaClient.WriteMessages(ctx, mb.messages...)
 }

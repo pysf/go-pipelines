@@ -69,11 +69,12 @@ func (cp *csvProcessor) ProcessCSV(ctx context.Context, fileEventCh chan FileInf
 					break
 				}
 
-				lineCounter := 1
+				lineCounter := 0
 
 				for {
 
 					line, err := reader.Read()
+					lineCounter++
 					if err != nil {
 						if err != io.EOF {
 							sendResult(&csvRow{
@@ -87,14 +88,13 @@ func (cp *csvProcessor) ProcessCSV(ctx context.Context, fileEventCh chan FileInf
 					for i, header := range header {
 						row[header] = line[i]
 					}
+					row["file"] = fileInfo.FileName()
+					row["line"] = fmt.Sprint(lineCounter)
 
-					if line != nil {
-						sendResult(&csvRow{
-							line:     lineCounter,
-							data:     row,
-							fileName: fileInfo.FileName(),
-						})
-					}
+					sendResult(&csvRow{
+						data:     row,
+						fileName: fileInfo.FileName(),
+					})
 
 				}
 
@@ -113,7 +113,6 @@ func (cp *csvProcessor) ProcessCSV(ctx context.Context, fileEventCh chan FileInf
 
 type csvRow struct {
 	err      error
-	line     int
 	fileName string
 	data     interface{}
 	done     *func()
@@ -121,10 +120,6 @@ type csvRow struct {
 
 func (ki *csvRow) GetOnDone() *func() {
 	return ki.done
-}
-
-func (ki *csvRow) LineNumber() int {
-	return ki.line
 }
 
 func (ki *csvRow) Data() interface{} {
